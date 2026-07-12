@@ -1,6 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server"
-import { updateUserRole } from "@/app/admin/users/actions"
-import { Users, Truck, Route, Clock, CheckCircle2, UserCog, DollarSign, Fuel } from "lucide-react"
+import { updateUserRole, approveTrip } from "@/app/admin/users/actions"
+import {
+  Users, Truck, Route, Clock, CheckCircle2, UserCog,
+  DollarSign, Fuel, ArrowRight, Package, MapPin, FileText
+} from "lucide-react"
 import Link from "next/link"
 
 type Profile = {
@@ -25,7 +28,8 @@ function tripStatusClass(status: string): string {
   if (status === 'Completed') return 'text-emerald-400'
   if (status === 'In Transit') return 'text-sky-400'
   if (status === 'Dispatched') return 'text-amber-400'
-  return 'text-slate-400'
+  if (status === 'Draft') return 'text-slate-400'
+  return 'text-slate-500'
 }
 
 export async function AdminDashboard({ adminId }: { adminId: string }) {
@@ -34,13 +38,17 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
   const [
     { data: profiles },
     { data: vehicles },
-    { data: trips },
+    { data: allTrips },
     { data: fuelLogs },
     { data: maintenanceLogs },
   ] = await Promise.all([
     (supabase as any).from('profiles').select('*').order('created_at', { ascending: false }),
     (supabase as any).from('vehicles').select('status'),
-    (supabase as any).from('trips').select('id, source, destination, status, cargo_weight_kg, planned_distance_km, created_at, drivers(full_name), vehicles(registration_plate)').order('created_at', { ascending: false }).limit(8),
+    (supabase as any)
+      .from('trips')
+      .select('id, source, destination, status, cargo_weight_kg, planned_distance_km, created_at, drivers(full_name), vehicles(registration_plate)')
+      .order('created_at', { ascending: false })
+      .limit(10),
     (supabase as any).from('fuel_logs').select('total_cost'),
     (supabase as any).from('maintenance_logs').select('cost'),
   ])
@@ -50,7 +58,10 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
   const totalUsers = allProfiles.length
   const totalVehicles = vehicles?.length ?? 0
   const availableVehicles = vehicles?.filter((v: any) => v.status === 'Available').length ?? 0
-  const recentTrips: any[] = trips ?? []
+
+  const allTripsList: any[] = allTrips ?? []
+  const draftTrips = allTripsList.filter((t) => t.status === 'Draft')
+  const recentTrips = allTripsList.filter((t) => t.status !== 'Draft')
 
   const totalFuelCost = fuelLogs?.reduce((acc: number, l: any) => acc + (l.total_cost || 0), 0) ?? 0
   const totalMaintenanceCost = maintenanceLogs?.reduce((acc: number, l: any) => acc + (l.cost || 0), 0) ?? 0
@@ -108,7 +119,7 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
         </div>
       </div>
 
-      {/* Financial Stats Row */}
+      {/* Financial Stats */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
           <div className="flex items-center justify-between">
@@ -143,7 +154,61 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
         </div>
       </div>
 
-      {/* Pending Users Approval */}
+      {/* ── DRAFT TRIPS: Dispatch Approval Panel ── */}
+      {draftTrips.length > 0 && (
+        <section className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-sky-300 flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Pending Trip Approvals ({draftTrips.length})
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Fleet Manager saved these as Drafts. Review and dispatch or reject below.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {draftTrips.map((t: any) => (
+              <div key={t.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-500/10">
+                  <Route className="h-4 w-4 text-sky-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200 truncate">
+                    {t.source} → {t.destination}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {t.vehicles?.registration_plate ?? 'Vehicle TBD'} · {t.drivers?.full_name ?? 'Driver TBD'} ·{' '}
+                    {t.cargo_weight_kg?.toLocaleString()} kg · {t.planned_distance_km} km
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/trips/${t.id}`}
+                    className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-300 hover:border-slate-600 hover:text-slate-100 transition"
+                  >
+                    Details
+                  </Link>
+                  <form action={async () => {
+                    'use server'
+                    await approveTrip(t.id)
+                  }}>
+                    <button
+                      type="submit"
+                      className="flex items-center gap-1.5 rounded bg-sky-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-sky-400 transition"
+                    >
+                      Approve & Dispatch <ArrowRight className="h-3 w-3" />
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── PENDING USERS: Role Assignment ── */}
       {pendingUsers.length > 0 && (
         <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-6">
           <div className="mb-4 flex items-center justify-between">
@@ -157,45 +222,46 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
           </div>
           <div className="space-y-3">
             {pendingUsers.map((u) => (
-              <div key={u.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-950 p-4">
-                <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-bold text-slate-300">
-                  {u.full_name.substring(0, 2).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{u.full_name}</p>
-                  <p className="text-xs text-slate-500 truncate">{u.email}</p>
-                </div>
-                <form
-                  action={async (formData: FormData) => {
-                    'use server'
-                    await updateUserRole(u.id, formData.get('role') as string)
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <select
-                    name="role"
-                    defaultValue="driver"
-                    className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
+              <div key={u.id} className="rounded-lg border border-slate-800 bg-slate-950 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-bold text-slate-300">
+                    {u.full_name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{u.full_name}</p>
+                    <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                  </div>
+                  <form
+                    action={async (formData: FormData) => {
+                      'use server'
+                      await updateUserRole(u.id, formData.get('role') as string)
+                    }}
+                    className="flex items-center gap-2"
                   >
-                    <option value="driver">Driver</option>
-                    <option value="fleet_manager">Fleet Manager</option>
-                    <option value="safety_officer">Safety Officer</option>
-                    <option value="financial_analyst">Financial Analyst</option>
-                    <option value="admin">Super Admin</option>
-                  </select>
-                  <button type="submit" className="rounded bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-amber-400">
-                    Approve
-                  </button>
-                </form>
+                    <select
+                      name="role"
+                      defaultValue="driver"
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 focus:border-amber-400 focus:outline-none"
+                    >
+                      <option value="driver">Driver</option>
+                      <option value="fleet_manager">Fleet Manager</option>
+                      <option value="safety_officer">Safety Officer</option>
+                      <option value="financial_analyst">Financial Analyst</option>
+                      <option value="admin">Super Admin</option>
+                    </select>
+                    <button type="submit" className="rounded bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-amber-400">
+                      Approve
+                    </button>
+                  </form>
+                </div>
               </div>
             ))}
           </div>
         </section>
       )}
 
-      {/* Two column: Users + Trips */}
+      {/* Two column: Users + Active Trips */}
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* All Users */}
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-200">All Platform Users</h2>
@@ -221,19 +287,18 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
           </div>
         </section>
 
-        {/* Recent Trips — detailed on click via /trips/[id] */}
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-200">Recent Trips</h2>
+            <h2 className="text-sm font-semibold text-slate-200">Recent Active Trips</h2>
             <Link href="/trips" className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300">
               <Route className="h-3 w-3" /> View all
             </Link>
           </div>
           {recentTrips.length === 0 ? (
-            <p className="py-8 text-center text-xs text-slate-500">No trips yet. Fleet Manager can dispatch trips from the Dispatch page.</p>
+            <p className="py-8 text-center text-xs text-slate-500">No dispatched trips yet.</p>
           ) : (
             <div className="space-y-1">
-              {recentTrips.map((t) => (
+              {recentTrips.slice(0, 6).map((t) => (
                 <Link
                   key={t.id}
                   href={`/trips/${t.id}`}
@@ -245,9 +310,7 @@ export async function AdminDashboard({ adminId }: { adminId: string }) {
                       {t.source} → {t.destination}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      {t.vehicles?.registration_plate ?? 'N/A'} ·{' '}
-                      {t.drivers?.full_name ?? 'No driver'} ·{' '}
-                      {new Date(t.created_at).toLocaleDateString('en-IN')}
+                      {t.vehicles?.registration_plate ?? 'N/A'} · {t.drivers?.full_name ?? 'No driver'}
                     </p>
                   </div>
                   <span className={`shrink-0 text-[10px] font-semibold uppercase ${tripStatusClass(t.status)}`}>

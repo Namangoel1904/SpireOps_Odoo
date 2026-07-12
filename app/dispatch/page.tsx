@@ -31,9 +31,10 @@ export default async function DispatchPage() {
     .eq('status', 'Available')
     .order('registration_plate')
 
+  // Fetch available drivers — includes seeded dummy drivers AND approved profile-linked drivers
   const { data: drivers } = await (supabase as any)
     .from('drivers')
-    .select('id, full_name, license_number, license_expiry, status')
+    .select('id, full_name, license_number, license_expiry, status, profile_id')
     .eq('status', 'Available')
     .order('full_name')
 
