@@ -1,19 +1,24 @@
-"use client"
-
-import { useEffect, useState, type ReactNode } from "react"
+import { type ReactNode } from "react"
 import { ClipboardList, CircleCheckBig, TrafficCone, Wrench } from "lucide-react"
+import { createSupabaseServerClient } from "@/lib/supabase/server"
 
 import { KpiCard } from "@/components/dashboard/kpi-card"
 
-const loadingDelayMs = 850
+export async function FleetManagerDashboard() {
+  const supabase = await createSupabaseServerClient()
 
-export function FleetManagerDashboard(): ReactNode {
-  const [isLoading, setIsLoading] = useState(true)
+  // 1. Fetch vehicle stats
+  const { data: vehicles } = await (supabase as any).from('vehicles').select('status')
+  
+  const activeVehicles = vehicles?.filter((v: any) => v.status === 'On Trip').length || 0
+  const availableVehicles = vehicles?.filter((v: any) => v.status === 'Available').length || 0
+  const inMaintenance = vehicles?.filter((v: any) => v.status === 'In Shop').length || 0
+  const totalVehicles = vehicles?.length || 1 // prevent divide by zero
+  const activePercentage = Math.round(((activeVehicles + availableVehicles) / totalVehicles) * 100)
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setIsLoading(false), loadingDelayMs)
-    return () => window.clearTimeout(timer)
-  }, [])
+  // 2. Fetch pending trips (Draft or Dispatched)
+  const { data: trips } = await (supabase as any).from('trips').select('status').in('status', ['Draft', 'Dispatched'])
+  const pendingTrips = trips?.length || 0
 
   return (
     <div className="space-y-6">
@@ -22,10 +27,10 @@ export function FleetManagerDashboard(): ReactNode {
         <p className="text-sm text-slate-400">Live operational snapshot · Updated moments ago</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard isLoading={isLoading} label="Active Vehicles" value="142" detail="92% of registered fleet" icon={CircleCheckBig} tone="sky" />
-        <KpiCard isLoading={isLoading} label="Available Vehicles" value="38" detail="Ready for dispatch" icon={TrafficCone} tone="emerald" />
-        <KpiCard isLoading={isLoading} label="In Maintenance" value="11" detail="4 due back today" icon={Wrench} tone="amber" />
-        <KpiCard isLoading={isLoading} label="Pending Trips" value="27" detail="Awaiting driver allocation" icon={ClipboardList} tone="rose" />
+        <KpiCard isLoading={false} label="Active on Trip" value={activeVehicles.toString()} detail={`${activePercentage}% of fleet operational`} icon={CircleCheckBig} tone="sky" />
+        <KpiCard isLoading={false} label="Available Vehicles" value={availableVehicles.toString()} detail="Ready for dispatch" icon={TrafficCone} tone="emerald" />
+        <KpiCard isLoading={false} label="In Maintenance" value={inMaintenance.toString()} detail="Currently in shop" icon={Wrench} tone="amber" />
+        <KpiCard isLoading={false} label="Pending Trips" value={pendingTrips.toString()} detail="Awaiting driver/dispatch" icon={ClipboardList} tone="rose" />
       </div>
       <section className="rounded-lg border border-slate-800 bg-slate-900/30 p-6"><p className="text-sm font-medium text-slate-200">Dispatch readiness</p><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Use the operational metrics above to prioritize vehicle assignment and maintenance scheduling.</p></section>
     </div>
